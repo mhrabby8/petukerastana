@@ -135,6 +135,16 @@ export interface OrderItem {
   addOns: AddOn[];
 }
 
+// 🔹 NEW FEATURE START
+export interface PromoCode {
+  id: string;
+  code: string;
+  type: 'FIXED' | 'PERCENT';
+  value: number;
+  minOrderAmount?: number;
+}
+// 🔹 NEW FEATURE END
+
 export interface Order {
   id: string;
   branchId: string;
@@ -151,6 +161,12 @@ export interface Order {
   customerName?: string;
   createdAt: number;
   userId: string;
+  // 🔹 NEW FEATURE START
+  loyaltyPointsEarned?: number;
+  loyaltyPointsRedeemed?: number;
+  promoCodeUsed?: string;
+  promoDiscount?: number;
+  // 🔹 NEW FEATURE END
 }
 
 export interface AccountingEntry {
@@ -179,4 +195,7 @@ export interface SystemSettings {
   logoUrl?: string;
   vatPercentage: number;
   defaultDiscount: number;
+  // 🔹 NEW FEATURE START
+  promoCodes?: PromoCode[];
+  // 🔹 NEW FEATURE END
 }

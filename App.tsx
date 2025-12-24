@@ -10,7 +10,7 @@ import {
   ShoppingCart, Wallet, LayoutDashboard, BookOpen, Trash, UserPlus, Shield, ArrowLeft,
   List, Coffee, Home, MoreVertical, Upload, Camera, Check, Building2, Key, EyeOff,
   Flame, History, SlidersHorizontal, Receipt, BadgeCent, Warehouse, Percent, Banknote,
-  UserCircle, BarChart3, PieChart as PieChartIcon, ImageIcon, Lock, ExternalLink, HandCoins, Star, ShieldCheck, ShieldAlert, Sparkles, BrainCircuit, Loader2, Database, Save, UploadCloud, RefreshCcw
+  UserCircle, BarChart3, PieChart as PieChartIcon, ImageIcon, Lock, ExternalLink, HandCoins, Star, ShieldCheck, ShieldAlert, Sparkles, BrainCircuit, Loader2, Database, Save, UploadCloud, RefreshCcw, Ticket
 } from 'lucide-react';
 import { 
   NAV_ITEMS, 
@@ -40,13 +40,15 @@ import {
   Branch,
   BranchPriceOverride,
   WithdrawalRequest,
-  Notification
+  Notification,
+  PromoCode
 } from './types';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, Legend
 } from 'recharts';
 import { GoogleGenAI } from "@google/genai";
+import { AdvancedReportingView } from './AdvancedReporting';
 
 // --- Utility: Filter Logic ---
 const filterOrdersByCriteria = (orders: Order[], branchId: string, frequency: string, startDate: string, endDate: string) => {
@@ -569,7 +571,7 @@ const WalletView = ({ currentUser, withdrawalRequests, setWithdrawalRequests, se
       {isRequestModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setIsRequestModalOpen(false)} />
-          <form onSubmit={handleRequest} className="bg-white rounded-[2.5rem] w-full max-w-md relative z-10 p-8 md:p-10 space-y-6 shadow-2xl border border-gray-100 animate-in zoom-in">
+          <form onSubmit={handleRequest} className="bg-white rounded-[2.5rem] w-full max-md relative z-10 p-8 md:p-10 space-y-6 shadow-2xl border border-gray-100 animate-in zoom-in">
              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-2xl font-black uppercase tracking-widest text-gray-900">Advance Request</h3>
                 <button type="button" onClick={() => setIsRequestModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-all"><X size={20}/></button>
@@ -594,7 +596,7 @@ const WalletView = ({ currentUser, withdrawalRequests, setWithdrawalRequests, se
 };
 
 // --- Module: POS Terminal ---
-const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons, orders }: any) => {
+const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons, orders, customerPointsMap, addNotification }: any) => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -607,6 +609,10 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
   const [vatPercent, setVatPercent] = useState(settings.vatPercentage || 0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
 
+  const [promoCode, setPromoCode] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState<PromoCode | null>(null);
+  const [redeemPoints, setRedeemPoints] = useState(false);
+
   const customersMap = useMemo(() => {
     const map: Record<string, string> = {};
     orders.forEach((o: any) => {
@@ -618,6 +624,8 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
   useEffect(() => {
     if (customerInfo.phone && customersMap[customerInfo.phone]) {
       setCustomerInfo(prev => ({ ...prev, name: customersMap[customerInfo.phone] }));
+    } else if (customerInfo.phone && !customersMap[customerInfo.phone]) {
+      setCustomerInfo(prev => ({ ...prev, name: prev.name }));
     }
   }, [customerInfo.phone, customersMap]);
 
@@ -639,8 +647,30 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
     return acc + (itemTotal * item.quantity);
   }, 0);
   const vatAmount = (subtotal * vatPercent) / 100;
-  const discountAmount = discountType === 'PERCENT' ? (subtotal * discountValue) / 100 : discountValue;
-  const total = Math.max(0, subtotal + vatAmount - discountAmount);
+  const manualDiscount = discountType === 'PERCENT' ? (subtotal * discountValue) / 100 : discountValue;
+  
+  const promoDiscount = appliedPromo 
+    ? (appliedPromo.type === 'PERCENT' ? (subtotal * appliedPromo.value) / 100 : appliedPromo.value)
+    : 0;
+
+  const availablePoints = customerInfo.phone ? (customerPointsMap[customerInfo.phone] || 0) : 0;
+  const loyaltyDiscount = redeemPoints ? Math.min(availablePoints, subtotal + vatAmount - manualDiscount - promoDiscount) : 0;
+
+  const total = Math.max(0, subtotal + vatAmount - manualDiscount - promoDiscount - loyaltyDiscount);
+
+  const applyPromoCode = () => {
+    const found = (settings.promoCodes || []).find((p: PromoCode) => p.code.toUpperCase() === promoCode.toUpperCase());
+    if (found) {
+      if (subtotal >= (found.minOrderAmount || 0)) {
+        setAppliedPromo(found);
+        addNotification?.('Promo Applied', `Code ${found.code} successfully added.`, 'SUCCESS');
+      } else {
+        alert(`Minimum order for this code is ${settings.currencySymbol}${found.minOrderAmount}`);
+      }
+    } else {
+      alert("Invalid Promo Code");
+    }
+  };
 
   const onMenuItemClick = (item: MenuItem) => {
     const availableAddonsForThisItem = allAddons.filter((a: AddOn) => item.addOns?.includes(a.id));
@@ -685,14 +715,17 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
       items: cart,
       subtotal,
       vat: vatAmount,
-      discount: discountAmount,
+      discount: manualDiscount,
       total,
       status: OrderStatus.PENDING,
       paymentMethod,
       createdAt: Date.now(),
       userId: 'admin-1',
       customerName: customerInfo.name,
-      customerPhone: customerInfo.phone
+      customerPhone: customerInfo.phone,
+      promoCodeUsed: appliedPromo?.code,
+      promoDiscount,
+      loyaltyPointsRedeemed: loyaltyDiscount
     });
     setCart([]);
     setIsCheckoutModalOpen(false);
@@ -700,6 +733,9 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
     setDiscountValue(settings.defaultDiscount || 0);
     setVatPercent(settings.vatPercentage || 0);
     setPaymentMethod(PaymentMethod.CASH);
+    setAppliedPromo(null);
+    setPromoCode('');
+    setRedeemPoints(false);
   };
 
   return (
@@ -768,6 +804,31 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
             </div>
           )}
         </div>
+
+        <div className="p-3 border-t bg-gray-50/30 shrink-0">
+          <div className="flex gap-2">
+            <input 
+              type="text" 
+              placeholder="Promo Code" 
+              className="flex-1 p-2 rounded-lg bg-white border border-gray-100 text-[9px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-blue-100"
+              value={promoCode}
+              onChange={e => setPromoCode(e.target.value)}
+            />
+            <button 
+              onClick={applyPromoCode}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all"
+            >
+              Apply
+            </button>
+          </div>
+          {appliedPromo && (
+            <div className="mt-2 flex items-center justify-between bg-emerald-50 px-2 py-1.5 rounded-lg border border-emerald-100">
+               <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1"><Ticket size={10}/> {appliedPromo.code}</span>
+               <button onClick={() => setAppliedPromo(null)} className="text-emerald-400 hover:text-emerald-600"><X size={10}/></button>
+            </div>
+          )}
+        </div>
+
         <div className="p-3 md:p-4 border-t bg-white space-y-2 md:space-y-3 shrink-0">
           <div className="flex justify-between items-center text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
             <span>Payable Total</span>
@@ -823,6 +884,24 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
                  </div>
                </div>
 
+               {customerInfo.phone && (
+                 <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                       <div className="p-2 bg-blue-600 text-white rounded-lg shadow-md"><Star size={14}/></div>
+                       <div>
+                          <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Available Points</p>
+                          <p className="text-base font-black text-blue-700">{availablePoints} pts</p>
+                       </div>
+                    </div>
+                    <button 
+                      onClick={() => setRedeemPoints(!redeemPoints)}
+                      className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${redeemPoints ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-blue-600 border border-blue-100 hover:bg-blue-50'}`}
+                    >
+                      {redeemPoints ? 'Points Applied' : 'Redeem Now'}
+                    </button>
+                 </div>
+               )}
+
                <div className="space-y-2">
                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Payment Method</label>
                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -864,7 +943,9 @@ const POSView = ({ branch, settings, addOrder, categories, menuItems, allAddons,
                <div className="p-5 bg-gray-900 rounded-[1.8rem] space-y-2 shadow-xl">
                  <div className="flex justify-between text-[10px] font-bold text-gray-500 uppercase tracking-widest"><span>Subtotal</span><span className="text-gray-300">{settings.currencySymbol}{subtotal.toLocaleString()}</span></div>
                  <div className="flex justify-between text-[10px] font-bold text-gray-500 uppercase tracking-widest"><span>VAT ({vatPercent}%)</span><span className="text-gray-300">+{settings.currencySymbol}{vatAmount.toFixed(0)}</span></div>
-                 <div className="flex justify-between text-[10px] font-bold text-rose-400 uppercase tracking-widest"><span>Discount</span><span>-{settings.currencySymbol}{discountAmount.toFixed(0)}</span></div>
+                 {manualDiscount > 0 && <div className="flex justify-between text-[10px] font-bold text-rose-400 uppercase tracking-widest"><span>Manual Discount</span><span>-{settings.currencySymbol}{manualDiscount.toFixed(0)}</span></div>}
+                 {promoDiscount > 0 && <div className="flex justify-between text-[10px] font-bold text-emerald-400 uppercase tracking-widest"><span>Promo Discount</span><span>-{settings.currencySymbol}{promoDiscount.toFixed(0)}</span></div>}
+                 {loyaltyDiscount > 0 && <div className="flex justify-between text-[10px] font-bold text-blue-400 uppercase tracking-widest"><span>Loyalty Discount</span><span>-{settings.currencySymbol}{loyaltyDiscount.toFixed(0)}</span></div>}
                  <div className="flex justify-between text-lg font-black text-white uppercase tracking-tight pt-2 border-t border-white/10 mt-1"><span>Payable</span><span className="text-blue-400">{settings.currencySymbol}{total.toFixed(0)}</span></div>
                </div>
              </div>
@@ -920,7 +1001,7 @@ const AddonSelector = ({ item, availableAddons, onConfirm, onCancel, settings }:
   );
 };
 
-// --- Module: Order History (Responsive & CRUD) ---
+// --- Module: Order History ---
 const OrderHistoryView = ({ orders, setOrders, settings, branches, setAccountingEntries }: any) => {
   const [filter, setFilter] = useState('ALL');
   const [filterBranchId, setFilterBranchId] = useState('ALL');
@@ -1110,6 +1191,8 @@ const OrderHistoryView = ({ orders, setOrders, settings, branches, setAccounting
              </div>
              <div className="p-5 bg-gray-900 rounded-[2rem] space-y-2.5 shadow-xl">
                <div className="flex justify-between text-[10px] font-bold text-gray-500 uppercase tracking-widest"><span>Subtotal</span><span className="text-gray-300">{settings.currencySymbol}{selectedOrder.subtotal.toLocaleString()}</span></div>
+               {selectedOrder.promoDiscount ? <div className="flex justify-between text-[10px] font-bold text-emerald-400 uppercase tracking-widest"><span>Promo Discount</span><span className="text-emerald-300">-{settings.currencySymbol}{selectedOrder.promoDiscount}</span></div> : null}
+               {selectedOrder.loyaltyPointsRedeemed ? <div className="flex justify-between text-[10px] font-bold text-blue-400 uppercase tracking-widest"><span>Loyalty Discount</span><span className="text-blue-300">-{settings.currencySymbol}{selectedOrder.loyaltyPointsRedeemed}</span></div> : null}
                <div className="flex justify-between text-xl font-black text-white uppercase tracking-tight pt-2.5 border-t border-white/10 mt-1"><span>Payable</span><span className="text-blue-400">{settings.currencySymbol}{selectedOrder.total.toFixed(0)}</span></div>
              </div>
              <div className="space-y-3">
@@ -1412,7 +1495,7 @@ const AccountingView = ({ settings, entries, setEntries, withdrawalRequests, set
       {isAddOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setIsAddOpen(false)} />
-          <form onSubmit={addVoucher} className="bg-white rounded-[2rem] w-full max-w-md relative z-10 p-8 md:p-10 space-y-4 shadow-2xl animate-in zoom-in border border-gray-100">
+          <form onSubmit={addVoucher} className="bg-white rounded-[2rem] w-full max-md relative z-10 p-8 md:p-10 space-y-4 shadow-2xl animate-in zoom-in border border-gray-100">
              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-black uppercase tracking-widest">Log Voucher</h3>
                 <button type="button" onClick={() => setIsAddOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-all"><X size={20}/></button>
@@ -1435,7 +1518,7 @@ const AccountingView = ({ settings, entries, setEntries, withdrawalRequests, set
 };
 
 // --- Module: Customers View ---
-const CustomersView = ({ orders, settings }: any) => {
+const CustomersView = ({ orders, settings, customerPointsMap }: any) => {
   const customers = useMemo(() => {
     const map: Record<string, any> = {};
     orders.forEach((o: any) => {
@@ -1469,8 +1552,8 @@ const CustomersView = ({ orders, settings }: any) => {
                 <p className="text-sm font-black text-gray-800">{c.totalOrders}</p>
               </div>
               <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 text-center">
-                <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Lifetime</p>
-                <p className="text-sm font-black text-blue-600">{settings.currencySymbol}{c.totalSpend.toFixed(0)}</p>
+                <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Loyalty Points</p>
+                <p className="text-sm font-black text-blue-600">{customerPointsMap[c.phone] || 0} pts</p>
               </div>
             </div>
           </div>
@@ -1501,6 +1584,8 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
     const selectedAddonIds = Array.from(formData.getAll('addOns') as string[]);
     const selectedBranchIds = Array.from(formData.getAll('allowedBranchIds') as string[]);
     
+    const finalBranchIds = selectedBranchIds.length > 0 ? selectedBranchIds : branches.map((b: Branch) => b.id);
+
     const branchPrices: BranchPriceOverride[] = [];
     branches.forEach((b: Branch) => {
       const branchPriceVal = formData.get(`price_${b.id}`) as string;
@@ -1516,7 +1601,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
       image: imagePreview || modal.data?.image || `https://picsum.photos/400/300?random=${Date.now()}`,
       description: formData.get('description') as string,
       addOns: selectedAddonIds,
-      allowedBranchIds: selectedBranchIds,
+      allowedBranchIds: finalBranchIds,
       branchPrices
     };
     if (modal.data) setMenuItems(menuItems.map((m: any) => m.id === modal.data.id ? { ...m, ...data } : m));
@@ -1634,7 +1719,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
       {(modal?.type === 'add-item' || modal?.type === 'edit-item') && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 overflow-y-auto no-scrollbar">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => { setModal(null); setImagePreview(null); }} />
-          <form onSubmit={saveItem} className="bg-white rounded-[2.5rem] w-full max-w-lg relative z-10 p-6 md:p-10 space-y-6 shadow-2xl animate-in zoom-in border border-gray-100 my-auto">
+          <form onSubmit={saveItem} className="bg-white rounded-[2.5rem] w-full max-lg relative z-10 p-6 md:p-10 space-y-6 shadow-2xl animate-in zoom-in border border-gray-100 my-auto">
              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-2xl font-black uppercase tracking-widest">Offering Logic</h3>
                 <button type="button" onClick={() => { setModal(null); setImagePreview(null); }} className="p-2 hover:bg-gray-100 rounded-full transition-all"><X size={20}/></button>
@@ -1653,7 +1738,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
                 </button>
                 <input ref={fileInputRef} type="file" className="hidden" accept="image/*" onChange={handleImageChange}/>
              </div>
-             <div className="space-y-4">
+             <div className="space-y-4 max-h-[40vh] overflow-y-auto no-scrollbar pr-2">
                <input name="name" type="text" placeholder="Designation" defaultValue={modal.data?.name} className="w-full p-4 rounded-2xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-4 focus:ring-blue-50" required />
                <div className="grid grid-cols-2 gap-4">
                  <div>
@@ -1667,6 +1752,25 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
                    </select>
                  </div>
                </div>
+               
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">Node Availability (POS Display)</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                    {branches.map((b: Branch) => (
+                      <label key={b.id} className="flex items-center gap-3 cursor-pointer p-1">
+                        <input 
+                          type="checkbox" 
+                          name="allowedBranchIds" 
+                          value={b.id} 
+                          defaultChecked={modal.data?.allowedBranchIds?.includes(b.id) || !modal.data} 
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-[10px] font-bold text-gray-700 uppercase truncate">{b.name}</span>
+                      </label>
+                    ))}
+                  </div>
+               </div>
+
                <div className="space-y-2">
                  <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">Branch-Specific Overrides</label>
                  <div className="space-y-2">
@@ -1689,7 +1793,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
       {(modal?.type === 'add-addon' || modal?.type === 'edit-addon') && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setModal(null)} />
-          <form onSubmit={saveAddon} className="bg-white rounded-[2.5rem] w-full max-w-md relative z-10 p-8 space-y-6 shadow-2xl animate-in zoom-in border border-gray-100">
+          <form onSubmit={saveAddon} className="bg-white rounded-[2.5rem] w-full max-md relative z-10 p-8 space-y-6 shadow-2xl animate-in zoom-in border border-gray-100">
              <div className="flex justify-between items-center">
                 <h3 className="text-xl font-black uppercase tracking-widest">Add-on Matrix</h3>
                 <button type="button" onClick={() => setModal(null)} className="p-2 hover:bg-gray-100 rounded-full transition-all"><X size={20}/></button>
@@ -1717,7 +1821,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
       {(modal?.type === 'add-cat' || modal?.type === 'edit-cat') && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setModal(null)} />
-          <form onSubmit={saveCategory} className="bg-white rounded-[2.5rem] w-full max-w-md relative z-10 p-8 space-y-6 shadow-2xl animate-in zoom-in border border-gray-100">
+          <form onSubmit={saveCategory} className="bg-white rounded-[2.5rem] w-full max-md relative z-10 p-8 space-y-6 shadow-2xl animate-in zoom-in border border-gray-100">
              <div className="flex justify-between items-center">
                 <h3 className="text-xl font-black uppercase tracking-widest">Category Config</h3>
                 <button type="button" onClick={() => setModal(null)} className="p-2 hover:bg-gray-100 rounded-full transition-all"><X size={20}/></button>
@@ -1795,7 +1899,7 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
       {(modal?.type === 'add' || modal?.type === 'edit') && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 overflow-y-auto no-scrollbar">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setModal(null)} />
-          <form onSubmit={saveStaff} className="bg-white rounded-[2.5rem] w-full max-w-lg relative z-10 p-6 md:p-10 space-y-5 shadow-2xl animate-in zoom-in border border-gray-100 my-auto">
+          <form onSubmit={saveStaff} className="bg-white rounded-[2.5rem] w-full max-lg relative z-10 p-6 md:p-10 space-y-5 shadow-2xl animate-in zoom-in border border-gray-100 my-auto">
              <div className="flex justify-between items-center mb-2">
                 <h3 className="text-xl font-black uppercase tracking-widest">Staff Matrix Logic</h3>
                 <button type="button" onClick={() => setModal(null)} className="p-2 hover:bg-gray-100 rounded-full transition-all"><X size={20}/></button>
@@ -1981,69 +2085,6 @@ const Header = ({ title, toggleSidebar, activeBranch, setActiveBranch, branches,
   );
 };
 
-// --- Module: Reports View ---
-const ReportsView = ({ orders, branches, settings }: any) => {
-  const [filterBranchId, setFilterBranchId] = useState('ALL');
-  const [filterFrequency, setFilterFrequency] = useState('DAILY');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-
-  const filteredOrders = useMemo(() => {
-    return filterOrdersByCriteria(orders, filterBranchId, filterFrequency, startDate, endDate);
-  }, [orders, filterBranchId, filterFrequency, startDate, endDate]);
-
-  const branchFinancialReport = useMemo(() => {
-    const branchesToShow = filterBranchId === 'ALL' ? branches : branches.filter((b: any) => b.id === filterBranchId);
-    return branchesToShow.map((b: Branch) => {
-      const branchOrders = filteredOrders.filter((o: Order) => o.branchId === b.id && o.status !== OrderStatus.CANCELLED);
-      const revenue = branchOrders.reduce((acc: number, o: Order) => acc + o.total, 0);
-      const margin = b.profitMargin || 0;
-      return { 
-        name: b.name, 
-        revenue, 
-        count: branchOrders.length, 
-        margin, 
-        estimatedProfit: revenue * (margin / 100) 
-      };
-    });
-  }, [filteredOrders, branches, filterBranchId]);
-
-  return (
-    <div className="p-4 lg:p-8 space-y-8 h-full overflow-y-auto pb-32 no-scrollbar bg-gray-50/20">
-      <div className="flex justify-between items-center">
-        <h3 className="text-xl md:text-2xl font-black text-gray-800 uppercase tracking-widest">Forensic Intelligence</h3>
-      </div>
-      <GlobalFilterBar 
-        branches={branches}
-        filterBranchId={filterBranchId}
-        setFilterBranchId={setFilterBranchId}
-        filterFrequency={filterFrequency}
-        setFilterFrequency={setFilterFrequency}
-        startDate={startDate}
-        setStartDate={setStartDate}
-        endDate={endDate}
-        setEndDate={setEndDate}
-      />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-6 md:p-10 rounded-[3rem] border border-gray-100 shadow-sm">
-          <h4 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8">Node Revenue Distribution</h4>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={branchFinancialReport}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: 'bold', fill: '#94a3b8'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontStyle: 'bold', fill: '#94a3b8'}} />
-                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '24px', border: 'none'}}/>
-                <Bar dataKey="revenue" fill="#2563eb" radius={[12, 12, 0, 0]} barSize={40} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // --- Module: Branch Management View ---
 const BranchManagementView = ({ branches, setBranches }: any) => {
   const [modal, setModal] = useState<any>(null);
@@ -2162,6 +2203,27 @@ const SettingsView = ({
   addons, setAddons,
   withdrawalRequests, setWithdrawalRequests
 }: any) => {
+  const [promoModal, setPromoModal] = useState<any>(null);
+  
+  const savePromoCode = (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const newPromo = {
+      id: promoModal.data?.id || `p-${Date.now()}`,
+      code: formData.get('code') as string,
+      type: formData.get('type') as any,
+      value: parseFloat(formData.get('value') as string),
+      minOrderAmount: parseFloat(formData.get('minOrderAmount') as string) || 0
+    };
+    const currentPromos = settings.promoCodes || [];
+    const updatedPromos = promoModal.data 
+      ? currentPromos.map((p: any) => p.id === newPromo.id ? newPromo : p)
+      : [...currentPromos, newPromo];
+    
+    setSettings({ ...settings, promoCodes: updatedPromos });
+    setPromoModal(null);
+  };
+
   const handleExport = () => {
     const data = { settings, branches, orders, accountingEntries, staff, menuItems, stockItems, categories, addons, withdrawalRequests, exportDate: new Date().toISOString(), version: "1.3.Enterprise" };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -2215,6 +2277,31 @@ const SettingsView = ({
            </div>
         </div>
       </div>
+
+      <div className="bg-white p-8 md:p-12 rounded-[3.5rem] border border-gray-100 shadow-sm">
+        <div className="flex justify-between items-center mb-8">
+           <h3 className="text-xl font-black uppercase tracking-tight">Promotional Engine</h3>
+           <button onClick={() => setPromoModal({ type: 'add' })} className="p-3 bg-blue-600 text-white rounded-xl shadow-lg active:scale-95 transition-all"><Plus size={16}/></button>
+        </div>
+        <div className="space-y-3">
+           {(settings.promoCodes || []).map((p: any) => (
+             <div key={p.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 group">
+                <div className="flex items-center gap-4">
+                   <div className="p-3 bg-white rounded-xl shadow-sm text-blue-600"><Ticket size={18}/></div>
+                   <div>
+                      <p className="text-sm font-black text-gray-800">{p.code}</p>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{p.value}{p.type === 'PERCENT' ? '%' : settings.currencySymbol} Discount • Min: {settings.currencySymbol}{p.minOrderAmount || 0}</p>
+                   </div>
+                </div>
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <button onClick={() => setPromoModal({ type: 'edit', data: p })} className="p-2 text-gray-400 hover:text-blue-600"><Edit size={16}/></button>
+                   <button onClick={() => setSettings({...settings, promoCodes: settings.promoCodes.filter((x:any)=>x.id!==p.id)})} className="p-2 text-gray-400 hover:text-rose-600"><Trash2 size={16}/></button>
+                </div>
+             </div>
+           ))}
+        </div>
+      </div>
+
       <div className="bg-gradient-to-br from-gray-900 to-black p-8 md:p-12 rounded-[3.5rem] text-white shadow-2xl">
         <div className="flex items-center gap-4 mb-8">
            <div className="p-4 bg-white/10 rounded-2xl"><Database size={24} className="text-blue-400" /></div>
@@ -2234,6 +2321,30 @@ const SettingsView = ({
            </label>
         </div>
       </div>
+
+      {promoModal && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setPromoModal(null)} />
+          <form onSubmit={savePromoCode} className="bg-white rounded-[2.5rem] w-full max-md relative z-10 p-8 space-y-6 shadow-2xl animate-in zoom-in">
+             <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-black uppercase tracking-widest text-gray-900">Promo Logic</h3>
+                <button type="button" onClick={() => setPromoModal(null)} className="p-2 hover:bg-gray-100 rounded-full transition-all"><X size={20}/></button>
+             </div>
+             <div className="space-y-4">
+                <input name="code" type="text" placeholder="Promo Code (e.g. SAVER20)" defaultValue={promoModal.data?.code} className="w-full p-4 rounded-2xl bg-gray-50 border-none font-black text-sm outline-none focus:ring-4 focus:ring-blue-50 uppercase" required />
+                <div className="grid grid-cols-2 gap-4">
+                  <select name="type" defaultValue={promoModal.data?.type || 'FIXED'} className="p-4 rounded-2xl bg-gray-50 border-none font-black text-[10px] uppercase outline-none">
+                    <option value="FIXED">Fixed Discount</option>
+                    <option value="PERCENT">Percentage %</option>
+                  </select>
+                  <input name="value" type="number" step="0.01" placeholder="Value" defaultValue={promoModal.data?.value} className="p-4 rounded-2xl bg-gray-50 border-none font-black text-sm outline-none" required />
+                </div>
+                <input name="minOrderAmount" type="number" placeholder="Min Order Amount" defaultValue={promoModal.data?.minOrderAmount} className="w-full p-4 rounded-2xl bg-gray-50 border-none font-black text-sm outline-none" />
+             </div>
+             <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">Save Promo</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
@@ -2259,7 +2370,24 @@ export default function App() {
   const [currentUser, setCurrentUser] = usePersistentState('current-user', null);
   const [originalAdmin, setOriginalAdmin] = useState<UserType | null>(null);
 
+  const [filterBranchId, setFilterBranchId] = useState('ALL');
+  const [filterFrequency, setFilterFrequency] = useState('DAILY');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+
+  const customerPointsMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    orders.forEach((o: Order) => {
+      if (!o.customerPhone) return;
+      const key = o.customerPhone;
+      if (o.status !== OrderStatus.CANCELLED) {
+        map[key] = (map[key] || 0) + (o.loyaltyPointsEarned || 0) - (o.loyaltyPointsRedeemed || 0);
+      }
+    });
+    return map;
+  }, [orders]);
 
   const addNotification = (title: string, message: string, type: Notification['type'] = 'INFO') => {
     const newNotif: Notification = { id: `NOTIF-${Date.now()}`, title, message, type, createdAt: Date.now(), read: false };
@@ -2269,9 +2397,17 @@ export default function App() {
   const markAllRead = () => setNotifications(notifications.map((n: Notification) => ({ ...n, read: true })));
 
   const addOrder = (order: Order) => {
-    setOrders([order, ...orders]);
-    const newEntry: AccountingEntry = { id: `INC-${Date.now()}`, date: Date.now(), description: `Sales - Order #${order.id.split('-')[1]} (${order.paymentMethod || 'CASH'})`, type: 'INCOME', amount: order.total, category: 'Sales', branchId: order.branchId };
+    const isFirstOrder = order.customerPhone && !orders.some(o => o.customerPhone === order.customerPhone);
+    const earnedPoints = Math.floor(order.total / 100) + (isFirstOrder ? 10 : 0);
+    const enrichedOrder = { ...order, loyaltyPointsEarned: earnedPoints };
+
+    setOrders([enrichedOrder, ...orders]);
+    const newEntry: AccountingEntry = { id: `INC-${Date.now()}`, date: Date.now(), description: `Sales - Order #${order.id.split('-')[1]} (${order.paymentMethod || 'CASH'})`, type: 'INCOME', amount: enrichedOrder.total, category: 'Sales', branchId: enrichedOrder.branchId };
     setAccountingEntries((prev: AccountingEntry[]) => [newEntry, ...prev]);
+    
+    if (isFirstOrder) {
+       addNotification('Loyalty Milestone', `New patron ${order.customerName || order.customerPhone} awarded 10 welcome points.`, 'SUCCESS');
+    }
   };
   
   const handleLogin = (user: UserType) => {
@@ -2307,16 +2443,41 @@ export default function App() {
     }
     switch (activeTab) {
       case 'dashboard': return <DashboardView orders={orders} settings={settings} branches={branches} currentUser={currentUser} />;
-      case 'pos': return <POSView branch={activeBranch} settings={settings} addOrder={addOrder} categories={categories} menuItems={menuItems} allAddons={addons} orders={orders} />;
+      case 'pos': return <POSView branch={activeBranch} settings={settings} addOrder={addOrder} categories={categories} menuItems={menuItems} allAddons={addons} orders={orders} customerPointsMap={customerPointsMap} addNotification={addNotification} />;
       case 'orders': return <OrderHistoryView orders={orders} setOrders={setOrders} settings={settings} branches={branches} setAccountingEntries={setAccountingEntries} />;
       case 'wallet': return <WalletView currentUser={currentUser} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} settings={settings} addNotification={addNotification} />;
       case 'branches': return <BranchManagementView branches={branches} setBranches={setBranches} />;
       case 'inventory': return <InventoryView settings={settings} stockItems={stockItems} setStockItems={setStockItems} />;
       case 'menu': return <MenuSetupView settings={settings} categories={categories} setCategories={setCategories} menuItems={menuItems} setMenuItems={setMenuItems} addons={addons} setAddons={setAddons} branches={branches} />;
-      case 'customers': return <CustomersView orders={orders} settings={settings} />;
+      case 'customers': return <CustomersView orders={orders} settings={settings} customerPointsMap={customerPointsMap} />;
       case 'staff': return <StaffManagementView staff={staff} setStaff={setStaff} branches={branches} impersonateStaff={impersonateStaff} settings={settings} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} accountingEntries={accountingEntries} setAccountingEntries={setAccountingEntries} addNotification={addNotification} orders={orders} />;
       case 'accounting': return <AccountingView settings={settings} entries={accountingEntries} setEntries={setAccountingEntries} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} staff={staff} />;
-      case 'reports': return <ReportsView orders={orders} branches={branches} stockItems={stockItems} settings={settings} />;
+      case 'reports': return (
+        <div className="p-4 lg:p-8 space-y-8 h-full overflow-y-auto pb-32 no-scrollbar bg-gray-50/20">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xl md:text-2xl font-black text-gray-800 uppercase tracking-widest">Enterprise Analytics</h3>
+          </div>
+          <GlobalFilterBar 
+            branches={branches}
+            filterBranchId={filterBranchId} setFilterBranchId={setFilterBranchId}
+            filterFrequency={filterFrequency} setFilterFrequency={setFilterFrequency}
+            startDate={startDate} setStartDate={setStartDate}
+            endDate={endDate} setEndDate={setEndDate}
+          />
+          <AdvancedReportingView 
+            orders={orders} 
+            branches={branches} 
+            accountingEntries={accountingEntries} 
+            menuItems={menuItems} 
+            categories={categories} 
+            settings={settings}
+            filterBranchId={filterBranchId}
+            filterFrequency={filterFrequency}
+            startDate={startDate}
+            endDate={endDate}
+          />
+        </div>
+      );
       case 'settings': return <SettingsView settings={settings} setSettings={setSettings} branches={branches} setBranches={setBranches} orders={orders} setOrders={setOrders} accountingEntries={accountingEntries} setAccountingEntries={setAccountingEntries} staff={staff} setStaff={setStaff} menuItems={menuItems} setMenuItems={setMenuItems} stockItems={stockItems} setStockItems={setStockItems} categories={categories} setCategories={setCategories} addons={addons} setAddons={setAddons} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} />;
       default: return <DashboardView orders={orders} settings={settings} branches={branches} currentUser={currentUser} />;
     }

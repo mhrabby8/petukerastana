@@ -8,6 +8,12 @@ export const DEFAULT_SETTINGS = {
   currencyCode: 'TK',
   vatPercentage: 0,
   defaultDiscount: 0,
+  // 🔹 NEW FEATURE START
+  promoCodes: [
+    { id: 'p1', code: 'FIRST10', type: 'PERCENT', value: 10, minOrderAmount: 0 },
+    { id: 'p2', code: 'SAVETK50', type: 'FIXED', value: 50, minOrderAmount: 300 },
+  ],
+  // 🔹 NEW FEATURE END
 };
 
 export const INITIAL_CATEGORIES = [
