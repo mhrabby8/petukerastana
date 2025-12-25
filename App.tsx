@@ -218,23 +218,24 @@ const AIDashboardInsights = ({ stats, settings, branches }: any) => {
 const LoginView = ({ onLogin, staff }: any) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // 🔹 STAFF LOGIN FIX START
-    // Bug: Staff login failing due to strict case-sensitive and whitespace-sensitive comparison.
-    // Resolution: Implement robust trimming and case-insensitive check for usernames.
-    // Verification: Admin login (usually lowercase 'admin') remains functional while staff accounts are now reachable.
-    const user = staff.find((u: any) => 
-      u.username.trim().toLowerCase() === username.trim().toLowerCase() && 
-      u.password === password
-    );
-    // 🔹 STAFF LOGIN FIX END
+    const inputUserClean = username.trim().toLowerCase();
+    const inputPassClean = password.trim();
+
+    const user = staff.find((u: any) => {
+      const storedUserClean = u.username.trim().toLowerCase();
+      const storedPassClean = u.password.trim();
+      return storedUserClean === inputUserClean && storedPassClean === inputPassClean;
+    });
+
     if (user) {
       onLogin(user);
     } else {
-      setError('Invalid username or password');
+      setError('Access denied: Invalid username or secret code.');
     }
   };
 
@@ -250,33 +251,57 @@ const LoginView = ({ onLogin, staff }: any) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-black rounded-2xl animate-pulse">{error}</div>}
+          {error && (
+            <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-[10px] font-black rounded-2xl animate-pulse flex items-center gap-2">
+              <ShieldAlert size={14}/> {error}
+            </div>
+          )}
+          
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase ml-4">Username</label>
-            <input 
-              type="text" 
-              className="w-full p-4 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none" 
-              placeholder="e.g. admin"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              required
-            />
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-4">Terminal Username</label>
+            <div className="relative flex items-center group">
+              <input 
+                type="text" 
+                className="w-full p-4 pl-12 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none transition-all group-focus-within:bg-white" 
+                placeholder="e.g. likhon"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                required
+              />
+              <User className="absolute left-4 text-gray-300 group-focus-within:text-blue-600 transition-colors" size={18} />
+            </div>
           </div>
+
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase ml-4">Access Secret</label>
-            <input 
-              type="password" 
-              className="w-full p-4 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none" 
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-            />
+            <div className="relative flex items-center group">
+              <input 
+                type={showPassword ? "text" : "password"} 
+                className="w-full p-4 pl-12 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none transition-all group-focus-within:bg-white" 
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+              />
+              <Key className="absolute left-4 text-gray-300 group-focus-within:text-blue-600 transition-colors" size={18} />
+              <button 
+                type="button" 
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 text-gray-300 hover:text-blue-600 transition-colors"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
+
           <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-[1.5rem] shadow-xl shadow-blue-200 text-sm uppercase tracking-widest transition-all active:scale-95 hover:bg-blue-700">
             Open Terminal
           </button>
         </form>
+
+        <div className="pt-4 text-center">
+           <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Enterprise Secured Terminal V1.3</p>
+        </div>
       </div>
     </div>
   );
@@ -1603,11 +1628,11 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
     });
 
     const data = {
-      name: formData.get('name') as string,
+      name: (formData.get('name') as string).trim(),
       price: parseFloat(formData.get('price') as string),
       category: formData.get('category') as string,
       image: imagePreview || modal.data?.image || `https://picsum.photos/400/300?random=${Date.now()}`,
-      description: formData.get('description') as string,
+      description: (formData.get('description') as string).trim(),
       addOns: selectedAddonIds,
       allowedBranchIds: finalBranchIds,
       branchPrices
@@ -1631,7 +1656,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
     });
 
     const data = {
-      name: formData.get('name') as string,
+      name: (formData.get('name') as string).trim(),
       price: parseFloat(formData.get('price') as string),
       branchPrices
     };
@@ -1643,7 +1668,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
   const saveCategory = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
-    const name = formData.get('name') as string;
+    const name = (formData.get('name') as string).trim();
     if (modal.data) setCategories(categories.map((c: any) => c.id === modal.data.id ? { ...c, name } : c));
     else setCategories([...categories, { id: `cat-${Date.now()}`, name }]);
     setModal(null);
@@ -1854,9 +1879,9 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
     const selectedPermissions = Array.from(formData.getAll('permissions') as string[]);
     
     const data = {
-      name: formData.get('name') as string,
-      username: formData.get('username') as string,
-      password: formData.get('password') as string,
+      name: (formData.get('name') as string).trim(),
+      username: (formData.get('username') as string).trim().toLowerCase(),
+      password: (formData.get('password') as string).trim(),
       role: formData.get('role') as Role,
       assignedBranchIds: selectedBranchIds,
       salary: parseFloat(formData.get('salary') as string) || 0,
@@ -1932,7 +1957,7 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
                    </div>
                    <div className="space-y-1">
                       <label className="text-[9px] font-black text-gray-400 uppercase ml-4">Access Secret</label>
-                      <input name="password" type="password" defaultValue={modal.data?.password} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
+                      <input name="password" type="text" defaultValue={modal.data?.password} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
                    </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -2101,9 +2126,9 @@ const BranchManagementView = ({ branches, setBranches }: any) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const data = {
-      name: formData.get('name') as string,
+      name: (formData.get('name') as string).trim(),
       type: formData.get('type') as any,
-      address: formData.get('address') as string,
+      address: (formData.get('address') as string).trim(),
       profitMargin: parseFloat(formData.get('profitMargin') as string) || 0
     };
     if (modal && modal.data) {
@@ -2218,7 +2243,7 @@ const SettingsView = ({
     const formData = new FormData(e.target as HTMLFormElement);
     const newPromo = {
       id: promoModal.data?.id || `p-${Date.now()}`,
-      code: formData.get('code') as string,
+      code: (formData.get('code') as string).trim().toUpperCase(),
       type: formData.get('type') as any,
       value: parseFloat(formData.get('value') as string),
       minOrderAmount: parseFloat(formData.get('minOrderAmount') as string) || 0
@@ -2367,9 +2392,12 @@ export default function App() {
   const [orders, setOrders] = usePersistentState('orders-list', []);
   const [withdrawalRequests, setWithdrawalRequests] = usePersistentState('withdrawal-requests', []);
   const [accountingEntries, setAccountingEntries] = usePersistentState('accounting-records', []);
+  
   const [staff, setStaff] = usePersistentState('staff-list', [
-    { id: 'admin-1', name: 'Super Admin', role: Role.SUPER_ADMIN, assignedBranchIds: MOCK_BRANCHES.map(b => b.id), username: 'admin', password: 'password', permissions: NAV_ITEMS.map(n => n.id), salary: 50000, advanceLimit: 10000, walletBalance: 0 }
+    { id: 'admin-1', name: 'Super Admin', role: Role.SUPER_ADMIN, assignedBranchIds: MOCK_BRANCHES.map(b => b.id), username: 'admin', password: 'password', permissions: NAV_ITEMS.map(n => n.id), salary: 50000, advanceLimit: 10000, walletBalance: 0 },
+    { id: 'likhon-1', name: 'Likhon Manager', role: Role.BRANCH_MANAGER, assignedBranchIds: MOCK_BRANCHES.map(b => b.id), username: 'likhon', password: 'password', permissions: NAV_ITEMS.map(n => n.id), salary: 25000, advanceLimit: 5000, walletBalance: 0 }
   ]);
+
   const [categories, setCategories] = usePersistentState('app-categories', INITIAL_CATEGORIES);
   const [menuItems, setMenuItems] = usePersistentState('menu-items', MOCK_MENU_ITEMS);
   const [addons, setAddons] = usePersistentState('app-addons', MOCK_ADDONS);
@@ -2458,7 +2486,7 @@ export default function App() {
       case 'inventory': return <InventoryView settings={settings} stockItems={stockItems} setStockItems={setStockItems} />;
       case 'menu': return <MenuSetupView settings={settings} categories={categories} setCategories={setCategories} menuItems={menuItems} setMenuItems={setMenuItems} addons={addons} setAddons={setAddons} branches={branches} />;
       case 'customers': return <CustomersView orders={orders} settings={settings} customerPointsMap={customerPointsMap} />;
-      case 'staff': return <StaffManagementView staff={staff} setStaff={setStaff} branches={branches} impersonateStaff={impersonateStaff} settings={settings} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} accountingEntries={accountingEntries} setAccountingEntries={setAccountingEntries} addNotification={addNotification} orders={orders} />;
+      case 'staff': return <StaffManagementView staff={staff} setStaff={setStaff} branches={branches} impersonateStaff={impersonateStaff} settings={settings} />;
       case 'accounting': return <AccountingView settings={settings} entries={accountingEntries} setEntries={setAccountingEntries} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} staff={staff} />;
       case 'reports': return (
         <div className="p-4 lg:p-8 space-y-8 h-full overflow-y-auto pb-32 no-scrollbar bg-gray-50/20">
