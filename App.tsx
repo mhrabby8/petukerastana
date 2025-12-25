@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Menu, X, Search, Bell, User, ChevronRight, LogOut, 
@@ -223,12 +222,12 @@ const LoginView = ({ onLogin, staff }: any) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const inputUserClean = username.trim().toLowerCase();
-    const inputPassClean = password.trim();
+    const inputUserClean = (username || '').trim().toLowerCase();
+    const inputPassClean = (password || '').trim();
 
     const user = staff.find((u: any) => {
-      const storedUserClean = u.username.trim().toLowerCase();
-      const storedPassClean = u.password.trim();
+      const storedUserClean = (u.username || '').trim().toLowerCase();
+      const storedPassClean = (u.password || '').trim();
       return storedUserClean === inputUserClean && storedPassClean === inputPassClean;
     });
 
@@ -1258,11 +1257,11 @@ const InventoryView = ({ settings, stockItems, setStockItems }: any) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const data = {
-      name: formData.get('name') as string,
-      stock: parseFloat(formData.get('stock') as string),
-      category: formData.get('category') as string,
-      unit: formData.get('unit') as any,
-      min: parseFloat(formData.get('min') as string)
+      name: (formData.get('name') as string || '').trim(),
+      stock: parseFloat(formData.get('stock') as string) || 0,
+      category: (formData.get('category') as string || '').trim(),
+      unit: (formData.get('unit') as any) || 'kg',
+      min: parseFloat(formData.get('min') as string) || 0
     };
     if (modal.data) setStockItems(stockItems.map((s: any) => s.id === modal.data.id ? { ...s, ...data } : s));
     else setStockItems([...stockItems, { ...data, id: `rm-${Date.now()}` }]);
@@ -1331,10 +1330,10 @@ const AccountingView = ({ settings, entries, setEntries, withdrawalRequests, set
     const newEntry = {
       id: `ACC-${Date.now()}`,
       date: Date.now(),
-      description: formData.get('description') as string,
-      type: formData.get('type') as any,
-      amount: parseFloat(formData.get('amount') as string),
-      category: formData.get('category') as string,
+      description: (formData.get('description') as string || '').trim(),
+      type: (formData.get('type') as any) || 'EXPENSE',
+      amount: parseFloat(formData.get('amount') as string) || 0,
+      category: (formData.get('category') as string || '').trim(),
       branchId: 'b1'
     };
     setEntries([newEntry, ...entries]);
@@ -1628,11 +1627,11 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
     });
 
     const data = {
-      name: (formData.get('name') as string).trim(),
-      price: parseFloat(formData.get('price') as string),
+      name: (formData.get('name') as string || '').trim(),
+      price: parseFloat(formData.get('price') as string) || 0,
       category: formData.get('category') as string,
       image: imagePreview || modal.data?.image || `https://picsum.photos/400/300?random=${Date.now()}`,
-      description: (formData.get('description') as string).trim(),
+      description: (formData.get('description') as string || '').trim(),
       addOns: selectedAddonIds,
       allowedBranchIds: finalBranchIds,
       branchPrices
@@ -1656,8 +1655,8 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
     });
 
     const data = {
-      name: (formData.get('name') as string).trim(),
-      price: parseFloat(formData.get('price') as string),
+      name: (formData.get('name') as string || '').trim(),
+      price: parseFloat(formData.get('price') as string) || 0,
       branchPrices
     };
     if (modal.data) setAddons(addons.map((a: any) => a.id === modal.data.id ? { ...a, ...data } : a));
@@ -1668,7 +1667,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
   const saveCategory = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
-    const name = (formData.get('name') as string).trim();
+    const name = (formData.get('name') as string || '').trim();
     if (modal.data) setCategories(categories.map((c: any) => c.id === modal.data.id ? { ...c, name } : c));
     else setCategories([...categories, { id: `cat-${Date.now()}`, name }]);
     setModal(null);
@@ -1786,6 +1785,27 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
                  </div>
                </div>
                
+               {/* 🔹 PRODUCT ADD-ON FIX START */}
+               <div className="space-y-2">
+                 <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">Available Add-ons</label>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                    {addons.map((a: AddOn) => (
+                      <label key={a.id} className="flex items-center gap-3 cursor-pointer p-1 group">
+                         <input 
+                          type="checkbox" 
+                          name="addOns" 
+                          value={a.id} 
+                          defaultChecked={modal.data?.addOns?.includes(a.id)} 
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                         />
+                         <span className="text-[10px] font-bold text-gray-700 uppercase truncate group-hover:text-blue-600 transition-colors">{a.name} ({settings.currencySymbol}{a.price})</span>
+                      </label>
+                    ))}
+                    {addons.length === 0 && <p className="text-[9px] text-gray-400 italic p-1">No add-ons created yet.</p>}
+                 </div>
+               </div>
+               {/* 🔹 PRODUCT ADD-ON FIX END */}
+
                <div className="space-y-2">
                   <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">Node Availability (POS Display)</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
@@ -1879,9 +1899,9 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
     const selectedPermissions = Array.from(formData.getAll('permissions') as string[]);
     
     const data = {
-      name: (formData.get('name') as string).trim(),
-      username: (formData.get('username') as string).trim().toLowerCase(),
-      password: (formData.get('password') as string).trim(),
+      name: (formData.get('name') as string || '').trim(),
+      username: (formData.get('username') as string || '').trim().toLowerCase(),
+      password: (formData.get('password') as string || '').trim(),
       role: formData.get('role') as Role,
       assignedBranchIds: selectedBranchIds,
       salary: parseFloat(formData.get('salary') as string) || 0,
@@ -2126,9 +2146,9 @@ const BranchManagementView = ({ branches, setBranches }: any) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const data = {
-      name: (formData.get('name') as string).trim(),
+      name: (formData.get('name') as string || '').trim(),
       type: formData.get('type') as any,
-      address: (formData.get('address') as string).trim(),
+      address: (formData.get('address') as string || '').trim(),
       profitMargin: parseFloat(formData.get('profitMargin') as string) || 0
     };
     if (modal && modal.data) {
@@ -2243,9 +2263,9 @@ const SettingsView = ({
     const formData = new FormData(e.target as HTMLFormElement);
     const newPromo = {
       id: promoModal.data?.id || `p-${Date.now()}`,
-      code: (formData.get('code') as string).trim().toUpperCase(),
+      code: (formData.get('code') as string || '').trim().toUpperCase(),
       type: formData.get('type') as any,
-      value: parseFloat(formData.get('value') as string),
+      value: parseFloat(formData.get('value') as string) || 0,
       minOrderAmount: parseFloat(formData.get('minOrderAmount') as string) || 0
     };
     const currentPromos = settings.promoCodes || [];
