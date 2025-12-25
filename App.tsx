@@ -50,12 +50,6 @@ import {
 import { GoogleGenAI } from "@google/genai";
 import { AdvancedReportingView } from './AdvancedReporting';
 
-// --- Shared Utility: Credential Normalization ---
-// 🔹 CREDENTIAL FIX START
-const normUser = (u: any) => (u || '').toString().trim().toLowerCase();
-const normPass = (p: any) => (p || '').toString().trim();
-// 🔹 CREDENTIAL FIX END
-
 // --- Utility: Filter Logic ---
 const filterOrdersByCriteria = (orders: Order[], branchId: string, frequency: string, startDate: string, endDate: string) => {
   return orders.filter((order) => {
@@ -120,12 +114,28 @@ const resizeImage = (file: File, maxWidth = 800, maxHeight = 600): Promise<strin
 // --- Persistent State Helpers ---
 const usePersistentState = (key: string, initialValue: any) => {
   const [state, setState] = useState(() => {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : initialValue;
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved === null || saved === 'undefined') return initialValue;
+      return JSON.parse(saved);
+    } catch (e) {
+      console.error(`Error parsing persistent state for ${key}:`, e);
+      return initialValue;
+    }
   });
+
   useEffect(() => {
-    localStorage.setItem(key, JSON.stringify(state));
+    try {
+      if (state === undefined) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify(state));
+      }
+    } catch (e) {
+      console.error(`Error saving persistent state for ${key}:`, e);
+    }
   }, [key, state]);
+
   return [state, setState];
 };
 
@@ -224,33 +234,17 @@ const AIDashboardInsights = ({ stats, settings, branches }: any) => {
 const LoginView = ({ onLogin, staff }: any) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // 🔹 CREDENTIAL FIX: Using strict normalization
-    const inputUserClean = normUser(username);
-    const inputPassClean = normPass(password);
-
-    if (!inputUserClean || !inputPassClean) {
-      setError('Both username and secret are mandatory.');
-      return;
-    }
-
-    const user = staff.find((u: any) => {
-      const storedUserClean = normUser(u.username);
-      const storedPassClean = normPass(u.password);
-      return storedUserClean === inputUserClean && storedPassClean === inputPassClean;
-    });
-
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+    const user = staff.find((u: any) => u.username === cleanUsername && u.password === cleanPassword);
     if (user) {
       onLogin(user);
     } else {
-      setError('Access denied: Invalid username or secret code.');
-      // Diagnostic assist for the user in console
-      console.warn("LOGIN FAILURE: No matching user found for:", inputUserClean);
-      console.table(staff.map((s:any) => ({ name: s.name, username: s.username })));
+      setError('Invalid username or password');
     }
   };
 
@@ -266,59 +260,33 @@ const LoginView = ({ onLogin, staff }: any) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-[10px] font-black rounded-2xl animate-pulse flex items-center gap-2">
-              <ShieldAlert size={14}/> {error}
-            </div>
-          )}
-          
+          {error && <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-black rounded-2xl animate-pulse">{error}</div>}
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase ml-4">Terminal Username</label>
-            <div className="relative flex items-center group">
-              <input 
-                type="text" 
-                className="w-full p-4 pl-12 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none transition-all group-focus-within:bg-white" 
-                placeholder="e.g. likhon"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                required
-                autoComplete="username"
-              />
-              <User className="absolute left-4 text-gray-300 group-focus-within:text-blue-600 transition-colors" size={18} />
-            </div>
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-4">Username</label>
+            <input 
+              type="text" 
+              className="w-full p-4 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none" 
+              placeholder="e.g. admin"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              required
+            />
           </div>
-
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase ml-4">Access Secret</label>
-            <div className="relative flex items-center group">
-              <input 
-                type={showPassword ? "text" : "password"} 
-                className="w-full p-4 pl-12 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none transition-all group-focus-within:bg-white" 
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
-              <Key className="absolute left-4 text-gray-300 group-focus-within:text-blue-600 transition-colors" size={18} />
-              <button 
-                type="button" 
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 text-gray-300 hover:text-blue-600 transition-colors"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
+            <input 
+              type="password" 
+              className="w-full p-4 bg-gray-50 border-none rounded-[1.5rem] font-bold text-sm focus:ring-4 focus:ring-blue-50 outline-none" 
+              placeholder="••••••••"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+            />
           </div>
-
           <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-[1.5rem] shadow-xl shadow-blue-200 text-sm uppercase tracking-widest transition-all active:scale-95 hover:bg-blue-700">
             Open Terminal
           </button>
         </form>
-
-        <div className="pt-4 text-center">
-           <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Enterprise Secured Terminal V1.4</p>
-        </div>
       </div>
     </div>
   );
@@ -637,7 +605,7 @@ const WalletView = ({ currentUser, withdrawalRequests, setWithdrawalRequests, se
                    <textarea name="reason" placeholder="Brief explanation..." className="w-full p-5 rounded-[1.5rem] bg-gray-50 border-none font-bold text-sm h-24 outline-none focus:ring-4 focus:ring-blue-50" required />
                 </div>
              </div>
-             <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-[1.5rem] text-[10px] uppercase tracking-[0.3em] shadow-xl hover:bg-blue-700 transition-all active:scale-95">Send for Approval</button>
+             <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-[0.3em] shadow-xl hover:bg-blue-700 transition-all active:scale-95">Send for Approval</button>
           </form>
         </div>
       )}
@@ -1275,11 +1243,11 @@ const InventoryView = ({ settings, stockItems, setStockItems }: any) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const data = {
-      name: (formData.get('name') as string || '').trim(),
-      stock: parseFloat(formData.get('stock') as string) || 0,
-      category: (formData.get('category') as string || '').trim(),
-      unit: (formData.get('unit') as any) || 'kg',
-      min: parseFloat(formData.get('min') as string) || 0
+      name: formData.get('name') as string,
+      stock: parseFloat(formData.get('stock') as string),
+      category: formData.get('category') as string,
+      unit: formData.get('unit') as any,
+      min: parseFloat(formData.get('min') as string)
     };
     if (modal.data) setStockItems(stockItems.map((s: any) => s.id === modal.data.id ? { ...s, ...data } : s));
     else setStockItems([...stockItems, { ...data, id: `rm-${Date.now()}` }]);
@@ -1348,10 +1316,10 @@ const AccountingView = ({ settings, entries, setEntries, withdrawalRequests, set
     const newEntry = {
       id: `ACC-${Date.now()}`,
       date: Date.now(),
-      description: (formData.get('description') as string || '').trim(),
-      type: (formData.get('type') as any) || 'EXPENSE',
-      amount: parseFloat(formData.get('amount') as string) || 0,
-      category: (formData.get('category') as string || '').trim(),
+      description: formData.get('description') as string,
+      type: formData.get('type') as any,
+      amount: parseFloat(formData.get('amount') as string),
+      category: formData.get('category') as string,
       branchId: 'b1'
     };
     setEntries([newEntry, ...entries]);
@@ -1645,11 +1613,11 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
     });
 
     const data = {
-      name: (formData.get('name') as string || '').trim(),
-      price: parseFloat(formData.get('price') as string) || 0,
+      name: formData.get('name') as string,
+      price: parseFloat(formData.get('price') as string),
       category: formData.get('category') as string,
       image: imagePreview || modal.data?.image || `https://picsum.photos/400/300?random=${Date.now()}`,
-      description: (formData.get('description') as string || '').trim(),
+      description: formData.get('description') as string,
       addOns: selectedAddonIds,
       allowedBranchIds: finalBranchIds,
       branchPrices
@@ -1673,8 +1641,8 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
     });
 
     const data = {
-      name: (formData.get('name') as string || '').trim(),
-      price: parseFloat(formData.get('price') as string) || 0,
+      name: formData.get('name') as string,
+      price: parseFloat(formData.get('price') as string),
       branchPrices
     };
     if (modal.data) setAddons(addons.map((a: any) => a.id === modal.data.id ? { ...a, ...data } : a));
@@ -1685,7 +1653,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
   const saveCategory = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
-    const name = (formData.get('name') as string || '').trim();
+    const name = formData.get('name') as string;
     if (modal.data) setCategories(categories.map((c: any) => c.id === modal.data.id ? { ...c, name } : c));
     else setCategories([...categories, { id: `cat-${Date.now()}`, name }]);
     setModal(null);
@@ -1803,27 +1771,6 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
                  </div>
                </div>
                
-               {/* 🔹 PRODUCT ADD-ON FIX START */}
-               <div className="space-y-2">
-                 <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">Available Add-ons</label>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
-                    {addons.map((a: AddOn) => (
-                      <label key={a.id} className="flex items-center gap-3 cursor-pointer p-1 group">
-                         <input 
-                          type="checkbox" 
-                          name="addOns" 
-                          value={a.id} 
-                          defaultChecked={modal.data?.addOns?.includes(a.id)} 
-                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                         />
-                         <span className="text-[10px] font-bold text-gray-700 uppercase truncate group-hover:text-blue-600 transition-colors">{a.name} ({settings.currencySymbol}{a.price})</span>
-                      </label>
-                    ))}
-                    {addons.length === 0 && <p className="text-[9px] text-gray-400 italic p-1">No add-ons created yet.</p>}
-                 </div>
-               </div>
-               {/* 🔹 PRODUCT ADD-ON FIX END */}
-
                <div className="space-y-2">
                   <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">Node Availability (POS Display)</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
@@ -1909,7 +1856,6 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
 // --- Module: Staff Management ---
 const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, settings }: any) => {
   const [modal, setModal] = useState<any>(null);
-  const [showPass, setShowPass] = useState(false);
 
   const saveStaff = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1917,31 +1863,10 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
     const selectedBranchIds = Array.from(formData.getAll('branchIds') as string[]);
     const selectedPermissions = Array.from(formData.getAll('permissions') as string[]);
     
-    // 🔹 CREDENTIAL FIX: Explicit casting and normalization during save
-    const rawUser = formData.get('username') as string;
-    const rawPass = formData.get('password') as string;
-    const cleanUsername = normUser(rawUser);
-    const cleanPassword = normPass(rawPass);
-
-    if (!cleanUsername || !cleanPassword) {
-      alert("Username and Access Secret cannot be empty.");
-      return;
-    }
-
-    // Uniqueness check
-    const isDuplicate = staff.some((s: any) => 
-      normUser(s.username) === cleanUsername && (!modal.data || s.id !== modal.data.id)
-    );
-
-    if (isDuplicate) {
-      alert("This username is already allocated. Use a unique identifier.");
-      return;
-    }
-
     const data = {
-      name: (formData.get('name') as string || '').trim(),
-      username: cleanUsername,
-      password: cleanPassword,
+      name: formData.get('name') as string,
+      username: formData.get('username') as string,
+      password: formData.get('password') as string,
       role: formData.get('role') as Role,
       assignedBranchIds: selectedBranchIds,
       salary: parseFloat(formData.get('salary') as string) || 0,
@@ -1953,7 +1878,6 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
     if (modal.data) setStaff(staff.map((s: any) => s.id === modal.data.id ? { ...s, ...data } : s));
     else setStaff([...staff, { ...data, id: `u-${Date.now()}` }]);
     setModal(null);
-    setShowPass(false);
   };
 
   return (
@@ -2017,11 +1941,8 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
                       <input name="username" type="text" defaultValue={modal.data?.username} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
                    </div>
                    <div className="space-y-1">
-                      <div className="flex justify-between items-center ml-4">
-                        <label className="text-[9px] font-black text-gray-400 uppercase">Access Secret</label>
-                        <button type="button" onClick={() => setShowPass(!showPass)} className="text-[8px] font-black text-blue-600 uppercase tracking-tighter">{showPass ? 'Hide' : 'Show'}</button>
-                      </div>
-                      <input name="password" type={showPass ? "text" : "password"} defaultValue={modal.data?.password} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
+                      <label className="text-[9px] font-black text-gray-400 uppercase ml-4">Access Secret</label>
+                      <input name="password" type="password" defaultValue={modal.data?.password} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
                    </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -2190,9 +2111,9 @@ const BranchManagementView = ({ branches, setBranches }: any) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const data = {
-      name: (formData.get('name') as string || '').trim(),
+      name: formData.get('name') as string,
       type: formData.get('type') as any,
-      address: (formData.get('address') as string || '').trim(),
+      address: formData.get('address') as string,
       profitMargin: parseFloat(formData.get('profitMargin') as string) || 0
     };
     if (modal && modal.data) {
@@ -2307,9 +2228,9 @@ const SettingsView = ({
     const formData = new FormData(e.target as HTMLFormElement);
     const newPromo = {
       id: promoModal.data?.id || `p-${Date.now()}`,
-      code: (formData.get('code') as string || '').trim().toUpperCase(),
+      code: formData.get('code') as string,
       type: formData.get('type') as any,
-      value: parseFloat(formData.get('value') as string) || 0,
+      value: parseFloat(formData.get('value') as string),
       minOrderAmount: parseFloat(formData.get('minOrderAmount') as string) || 0
     };
     const currentPromos = settings.promoCodes || [];
@@ -2452,16 +2373,13 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [settings, setSettings] = usePersistentState('app-settings', DEFAULT_SETTINGS);
   const [branches, setBranches] = usePersistentState('app-branches', MOCK_BRANCHES);
-  const [activeBranch, setActiveBranch] = useState(branches[0]);
+  
   const [orders, setOrders] = usePersistentState('orders-list', []);
   const [withdrawalRequests, setWithdrawalRequests] = usePersistentState('withdrawal-requests', []);
   const [accountingEntries, setAccountingEntries] = usePersistentState('accounting-records', []);
-  
   const [staff, setStaff] = usePersistentState('staff-list', [
-    { id: 'admin-1', name: 'Super Admin', role: Role.SUPER_ADMIN, assignedBranchIds: MOCK_BRANCHES.map(b => b.id), username: 'admin', password: 'password', permissions: NAV_ITEMS.map(n => n.id), salary: 50000, advanceLimit: 10000, walletBalance: 0 },
-    { id: 'likhon-1', name: 'Likhon Manager', role: Role.BRANCH_MANAGER, assignedBranchIds: MOCK_BRANCHES.map(b => b.id), username: 'likhon', password: 'password', permissions: NAV_ITEMS.map(n => n.id), salary: 25000, advanceLimit: 5000, walletBalance: 0 }
+    { id: 'admin-1', name: 'Super Admin', role: Role.SUPER_ADMIN, assignedBranchIds: MOCK_BRANCHES.map(b => b.id), username: 'admin', password: 'password', permissions: NAV_ITEMS.map(n => n.id), salary: 50000, advanceLimit: 10000, walletBalance: 0 }
   ]);
-
   const [categories, setCategories] = usePersistentState('app-categories', INITIAL_CATEGORIES);
   const [menuItems, setMenuItems] = usePersistentState('menu-items', MOCK_MENU_ITEMS);
   const [addons, setAddons] = usePersistentState('app-addons', MOCK_ADDONS);
@@ -2469,6 +2387,14 @@ export default function App() {
   const [notifications, setNotifications] = usePersistentState('app-notifications', []);
   const [currentUser, setCurrentUser] = usePersistentState('current-user', null);
   const [originalAdmin, setOriginalAdmin] = useState<UserType | null>(null);
+
+  // Initialize active branch based on current user if present
+  const [activeBranch, setActiveBranch] = useState(() => {
+    if (currentUser && currentUser.assignedBranchIds?.length > 0) {
+      return branches.find((b: any) => currentUser.assignedBranchIds.includes(b.id)) || branches[0];
+    }
+    return branches[0];
+  });
 
   const [filterBranchId, setFilterBranchId] = useState('ALL');
   const [filterFrequency, setFilterFrequency] = useState('DAILY');
@@ -2529,12 +2455,7 @@ export default function App() {
     else { setCurrentUser(null); }
   };
 
-  // 🔹 REFRESH FIX: Trigger re-mount when ANY staff attribute changes to avoid stale state.
-  const staffManifestKey = useMemo(() => {
-    return staff.map((s:any) => `${s.username}-${s.password}`).join('|');
-  }, [staff]);
-
-  if (!currentUser) return <LoginView key={staffManifestKey} onLogin={handleLogin} staff={staff} />;
+  if (!currentUser) return <LoginView onLogin={handleLogin} staff={staff} />;
 
   const renderContent = () => {
     if (currentUser.role !== Role.SUPER_ADMIN && currentUser.permissions && !currentUser.permissions.includes(activeTab)) {
@@ -2555,7 +2476,7 @@ export default function App() {
       case 'inventory': return <InventoryView settings={settings} stockItems={stockItems} setStockItems={setStockItems} />;
       case 'menu': return <MenuSetupView settings={settings} categories={categories} setCategories={setCategories} menuItems={menuItems} setMenuItems={setMenuItems} addons={addons} setAddons={setAddons} branches={branches} />;
       case 'customers': return <CustomersView orders={orders} settings={settings} customerPointsMap={customerPointsMap} />;
-      case 'staff': return <StaffManagementView staff={staff} setStaff={setStaff} branches={branches} impersonateStaff={impersonateStaff} settings={settings} />;
+      case 'staff': return <StaffManagementView staff={staff} setStaff={setStaff} branches={branches} impersonateStaff={impersonateStaff} settings={settings} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} accountingEntries={accountingEntries} setAccountingEntries={setAccountingEntries} addNotification={addNotification} orders={orders} />;
       case 'accounting': return <AccountingView settings={settings} entries={accountingEntries} setEntries={setAccountingEntries} withdrawalRequests={withdrawalRequests} setWithdrawalRequests={setWithdrawalRequests} staff={staff} />;
       case 'reports': return (
         <div className="p-4 lg:p-8 space-y-8 h-full overflow-y-auto pb-32 no-scrollbar bg-gray-50/20">
