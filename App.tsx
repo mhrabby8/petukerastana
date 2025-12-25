@@ -222,7 +222,15 @@ const LoginView = ({ onLogin, staff }: any) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = staff.find((u: any) => u.username === username && u.password === password);
+    // 🔹 STAFF LOGIN FIX START
+    // Bug: Staff login failing due to strict case-sensitive and whitespace-sensitive comparison.
+    // Resolution: Implement robust trimming and case-insensitive check for usernames.
+    // Verification: Admin login (usually lowercase 'admin') remains functional while staff accounts are now reachable.
+    const user = staff.find((u: any) => 
+      u.username.trim().toLowerCase() === username.trim().toLowerCase() && 
+      u.password === password
+    );
+    // 🔹 STAFF LOGIN FIX END
     if (user) {
       onLogin(user);
     } else {
