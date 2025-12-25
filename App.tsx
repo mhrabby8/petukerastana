@@ -50,6 +50,12 @@ import {
 import { GoogleGenAI } from "@google/genai";
 import { AdvancedReportingView } from './AdvancedReporting';
 
+// --- Shared Utility: Credential Normalization ---
+// 🔹 CREDENTIAL FIX START
+const normUser = (u: any) => (u || '').toString().trim().toLowerCase();
+const normPass = (p: any) => (p || '').toString().trim();
+// 🔹 CREDENTIAL FIX END
+
 // --- Utility: Filter Logic ---
 const filterOrdersByCriteria = (orders: Order[], branchId: string, frequency: string, startDate: string, endDate: string) => {
   return orders.filter((order) => {
@@ -223,9 +229,9 @@ const LoginView = ({ onLogin, staff }: any) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // 🔹 CREDENTIAL FIX: Ensure consistent cleaning of inputs
-    const inputUserClean = (username || '').trim().toLowerCase();
-    const inputPassClean = (password || '').trim();
+    // 🔹 CREDENTIAL FIX: Using strict normalization
+    const inputUserClean = normUser(username);
+    const inputPassClean = normPass(password);
 
     if (!inputUserClean || !inputPassClean) {
       setError('Both username and secret are mandatory.');
@@ -233,8 +239,8 @@ const LoginView = ({ onLogin, staff }: any) => {
     }
 
     const user = staff.find((u: any) => {
-      const storedUserClean = (u.username || '').trim().toLowerCase();
-      const storedPassClean = (u.password || '').trim();
+      const storedUserClean = normUser(u.username);
+      const storedPassClean = normPass(u.password);
       return storedUserClean === inputUserClean && storedPassClean === inputPassClean;
     });
 
@@ -242,6 +248,9 @@ const LoginView = ({ onLogin, staff }: any) => {
       onLogin(user);
     } else {
       setError('Access denied: Invalid username or secret code.');
+      // Diagnostic assist for the user in console
+      console.warn("LOGIN FAILURE: No matching user found for:", inputUserClean);
+      console.table(staff.map((s:any) => ({ name: s.name, username: s.username })));
     }
   };
 
@@ -273,6 +282,7 @@ const LoginView = ({ onLogin, staff }: any) => {
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 required
+                autoComplete="username"
               />
               <User className="absolute left-4 text-gray-300 group-focus-within:text-blue-600 transition-colors" size={18} />
             </div>
@@ -288,6 +298,7 @@ const LoginView = ({ onLogin, staff }: any) => {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
               />
               <Key className="absolute left-4 text-gray-300 group-focus-within:text-blue-600 transition-colors" size={18} />
               <button 
@@ -306,7 +317,7 @@ const LoginView = ({ onLogin, staff }: any) => {
         </form>
 
         <div className="pt-4 text-center">
-           <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Enterprise Secured Terminal V1.3</p>
+           <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Enterprise Secured Terminal V1.4</p>
         </div>
       </div>
     </div>
@@ -1906,9 +1917,11 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
     const selectedBranchIds = Array.from(formData.getAll('branchIds') as string[]);
     const selectedPermissions = Array.from(formData.getAll('permissions') as string[]);
     
-    // 🔹 CREDENTIAL FIX: Ensure saved data is properly cleaned
-    const cleanUsername = (formData.get('username') as string || '').trim().toLowerCase();
-    const cleanPassword = (formData.get('password') as string || '').trim();
+    // 🔹 CREDENTIAL FIX: Explicit casting and normalization during save
+    const rawUser = formData.get('username') as string;
+    const rawPass = formData.get('password') as string;
+    const cleanUsername = normUser(rawUser);
+    const cleanPassword = normPass(rawPass);
 
     if (!cleanUsername || !cleanPassword) {
       alert("Username and Access Secret cannot be empty.");
@@ -1917,11 +1930,11 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
 
     // Uniqueness check
     const isDuplicate = staff.some((s: any) => 
-      s.username.toLowerCase() === cleanUsername && (!modal.data || s.id !== modal.data.id)
+      normUser(s.username) === cleanUsername && (!modal.data || s.id !== modal.data.id)
     );
 
     if (isDuplicate) {
-      alert("This username is already allocated to another terminal. Use a unique identifier.");
+      alert("This username is already allocated. Use a unique identifier.");
       return;
     }
 
@@ -2516,8 +2529,10 @@ export default function App() {
     else { setCurrentUser(null); }
   };
 
-  // 🔹 REFRESH FIX: Trigger re-mount when staff list changes to avoid stale validation
-  const staffManifestKey = staff.length + (staff[0]?.username || '');
+  // 🔹 REFRESH FIX: Trigger re-mount when ANY staff attribute changes to avoid stale state.
+  const staffManifestKey = useMemo(() => {
+    return staff.map((s:any) => `${s.username}-${s.password}`).join('|');
+  }, [staff]);
 
   if (!currentUser) return <LoginView key={staffManifestKey} onLogin={handleLogin} staff={staff} />;
 
