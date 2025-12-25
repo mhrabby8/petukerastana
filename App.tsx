@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Menu, X, Search, Bell, User, ChevronRight, LogOut, 
@@ -222,8 +223,14 @@ const LoginView = ({ onLogin, staff }: any) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // 🔹 CREDENTIAL FIX: Ensure consistent cleaning of inputs
     const inputUserClean = (username || '').trim().toLowerCase();
     const inputPassClean = (password || '').trim();
+
+    if (!inputUserClean || !inputPassClean) {
+      setError('Both username and secret are mandatory.');
+      return;
+    }
 
     const user = staff.find((u: any) => {
       const storedUserClean = (u.username || '').trim().toLowerCase();
@@ -1891,6 +1898,7 @@ const MenuSetupView = ({ settings, categories, setCategories, menuItems, setMenu
 // --- Module: Staff Management ---
 const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, settings }: any) => {
   const [modal, setModal] = useState<any>(null);
+  const [showPass, setShowPass] = useState(false);
 
   const saveStaff = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1898,10 +1906,29 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
     const selectedBranchIds = Array.from(formData.getAll('branchIds') as string[]);
     const selectedPermissions = Array.from(formData.getAll('permissions') as string[]);
     
+    // 🔹 CREDENTIAL FIX: Ensure saved data is properly cleaned
+    const cleanUsername = (formData.get('username') as string || '').trim().toLowerCase();
+    const cleanPassword = (formData.get('password') as string || '').trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      alert("Username and Access Secret cannot be empty.");
+      return;
+    }
+
+    // Uniqueness check
+    const isDuplicate = staff.some((s: any) => 
+      s.username.toLowerCase() === cleanUsername && (!modal.data || s.id !== modal.data.id)
+    );
+
+    if (isDuplicate) {
+      alert("This username is already allocated to another terminal. Use a unique identifier.");
+      return;
+    }
+
     const data = {
       name: (formData.get('name') as string || '').trim(),
-      username: (formData.get('username') as string || '').trim().toLowerCase(),
-      password: (formData.get('password') as string || '').trim(),
+      username: cleanUsername,
+      password: cleanPassword,
       role: formData.get('role') as Role,
       assignedBranchIds: selectedBranchIds,
       salary: parseFloat(formData.get('salary') as string) || 0,
@@ -1913,6 +1940,7 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
     if (modal.data) setStaff(staff.map((s: any) => s.id === modal.data.id ? { ...s, ...data } : s));
     else setStaff([...staff, { ...data, id: `u-${Date.now()}` }]);
     setModal(null);
+    setShowPass(false);
   };
 
   return (
@@ -1976,8 +2004,11 @@ const StaffManagementView = ({ staff, setStaff, branches, impersonateStaff, sett
                       <input name="username" type="text" defaultValue={modal.data?.username} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
                    </div>
                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-gray-400 uppercase ml-4">Access Secret</label>
-                      <input name="password" type="text" defaultValue={modal.data?.password} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
+                      <div className="flex justify-between items-center ml-4">
+                        <label className="text-[9px] font-black text-gray-400 uppercase">Access Secret</label>
+                        <button type="button" onClick={() => setShowPass(!showPass)} className="text-[8px] font-black text-blue-600 uppercase tracking-tighter">{showPass ? 'Hide' : 'Show'}</button>
+                      </div>
+                      <input name="password" type={showPass ? "text" : "password"} defaultValue={modal.data?.password} className="w-full p-3 rounded-xl bg-gray-50 border-none font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100" required />
                    </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -2485,7 +2516,10 @@ export default function App() {
     else { setCurrentUser(null); }
   };
 
-  if (!currentUser) return <LoginView onLogin={handleLogin} staff={staff} />;
+  // 🔹 REFRESH FIX: Trigger re-mount when staff list changes to avoid stale validation
+  const staffManifestKey = staff.length + (staff[0]?.username || '');
+
+  if (!currentUser) return <LoginView key={staffManifestKey} onLogin={handleLogin} staff={staff} />;
 
   const renderContent = () => {
     if (currentUser.role !== Role.SUPER_ADMIN && currentUser.permissions && !currentUser.permissions.includes(activeTab)) {
